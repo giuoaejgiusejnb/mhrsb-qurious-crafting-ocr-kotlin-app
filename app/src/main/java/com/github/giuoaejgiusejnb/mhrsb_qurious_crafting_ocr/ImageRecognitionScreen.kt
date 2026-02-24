@@ -172,8 +172,8 @@ fun ImageRecognitionScreen(onBackClick: () -> Unit) {
             Button(
                 onClick = {
                     val intent = Intent(Intent.ACTION_VIEW,
-                        "https://colab.research.google.com/github/giuoaejgiusejnb/mhrsb-qurious-crafting-ocr-app/blob/main/notebooks/qurious_crafting_app.ipynb".toUri())
-                    context.startActivity(intent)
+                        "https://colab.research.google.com/github/giuoaejgiusejnb/mhrsb-qurious-crafting-ocr-kotlin-app/blob/main/notebooks/qurious_crafting_app.ipynb".toUri())
+                      context.startActivity(intent)
                 },
                 modifier = Modifier.weight(1f),
                 colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.tertiary)

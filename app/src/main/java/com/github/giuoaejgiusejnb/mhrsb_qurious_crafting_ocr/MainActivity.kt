@@ -55,7 +55,7 @@ class MainActivity : ComponentActivity() {
                     text = { Text("新しいバージョン ($latestVersion) が利用可能です。更新しますか？") },
                     confirmButton = {
                         TextButton(onClick = {
-                            val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/giuoaejgiusejnb/mhrsb-qurious-crafting_ocr-app/releases"))
+                            val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/giuoaejgiusejnb/mhrsb-qurious-crafting-ocr-kotlin-app/releases"))
                             context.startActivity(intent)
                             showUpdateDialog = false
                         }) { Text("更新する") }
@@ -73,7 +73,7 @@ class MainActivity : ComponentActivity() {
 
 private suspend fun checkUpdate(): String? = withContext(Dispatchers.IO) {
     try {
-        val url = URL("https://api.github.com/repos/giuoaejgiusejnb/mhrsb-qurious-crafting-ocr-app/releases/latest")
+        val url = URL("https://api.github.com/repos/giuoaejgiusejnb/mhrsb-qurious-crafting-ocr-kotlin-app/releases/latest")
         val connection = url.openConnection() as HttpURLConnection
         connection.requestMethod = "GET"
         connection.connect()
