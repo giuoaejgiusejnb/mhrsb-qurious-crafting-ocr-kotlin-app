@@ -66,9 +66,9 @@ fun ImageRecognitionScreen(onBackClick: () -> Unit) {
 
     // ZIP作成中の状態管理
     var isZipping by remember { mutableStateOf(false) }
-    var zipProgress by remember { mutableStateOf(0f) }
-    var processedCount by remember { mutableStateOf(0) }
-    var totalCount by remember { mutableStateOf(0) }
+    var zipProgress by remember { mutableFloatStateOf(0f) }
+    var processedCount by remember { mutableIntStateOf(0) }
+    var totalCount by remember { mutableIntStateOf(0) }
 
     val folderLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocumentTree()
@@ -252,7 +252,7 @@ fun ImageRecognitionScreen(onBackClick: () -> Unit) {
                         modifier = Modifier.fillMaxWidth(),
                     )
                     Spacer(modifier = Modifier.height(8.dp))
-                    Text("${processedCount} / ${totalCount} 枚完了 (${(zipProgress * 100).toInt()}%)")
+                    Text("$processedCount / $totalCount 枚完了 (${(zipProgress * 100).toInt()}%)")
                 }
             },
             confirmButton = { }
@@ -330,6 +330,47 @@ private fun getFolderName(context: Context, uri: Uri): String? {
     return documentFile?.name
 }
 
+/**
+ * サブフォルダも含めて再帰的に画像ファイルを収集する
+ */
+private suspend fun collectImagesRecursive(
+    context: Context,
+    treeUri: Uri,
+    parentDocId: String,
+    currentPath: String, // ZIP内の相対パス (例: "subfolder/")
+    imageInfoList: MutableList<Pair<String, Uri>>
+) {
+    val childrenUri = DocumentsContract.buildChildDocumentsUriUsingTree(treeUri, parentDocId)
+    context.contentResolver.query(
+        childrenUri,
+        arrayOf(
+            DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+            DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+            DocumentsContract.Document.COLUMN_MIME_TYPE
+        ),
+        null, null, null
+    )?.use { cursor ->
+        val idIndex = cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DOCUMENT_ID)
+        val nameIndex = cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DISPLAY_NAME)
+        val mimeIndex = cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_MIME_TYPE)
+
+        while (cursor.moveToNext()) {
+            val docId = cursor.getString(idIndex)
+            val name = cursor.getString(nameIndex) ?: "unknown"
+            val mime = cursor.getString(mimeIndex)
+            val uri = DocumentsContract.buildDocumentUriUsingTree(treeUri, docId)
+
+            if (DocumentsContract.Document.MIME_TYPE_DIR == mime) {
+                // サブディレクトリを見つけた場合、再帰的に探索
+                collectImagesRecursive(context, treeUri, docId, "$currentPath$name/", imageInfoList)
+            } else if (mime != null && mime.startsWith("image/")) {
+                // 画像ファイルの場合、現在の相対パスを含めた名前で保存
+                imageInfoList.add("$currentPath$name" to uri)
+            }
+        }
+    }
+}
+
 private suspend fun createZipWithSettingsLarge(
     context: Context, 
     folderUri: Uri, 
@@ -346,36 +387,13 @@ private suspend fun createZipWithSettingsLarge(
             zos.setMethod(ZipOutputStream.DEFLATED)
             zos.setLevel(0)
 
-            // 1. ファイル情報の取得（名前とUriのペア）
+            // 1. ファイル情報の取得（再帰的に全画像を取得）
             val treeId = DocumentsContract.getTreeDocumentId(folderUri)
-            val childrenUri = DocumentsContract.buildChildDocumentsUriUsingTree(folderUri, treeId)
-            
             val imageInfoList = mutableListOf<Pair<String, Uri>>()
-            context.contentResolver.query(
-                childrenUri,
-                arrayOf(
-                    DocumentsContract.Document.COLUMN_DOCUMENT_ID, 
-                    DocumentsContract.Document.COLUMN_DISPLAY_NAME, 
-                    DocumentsContract.Document.COLUMN_MIME_TYPE
-                ),
-                null, null, null
-            )?.use { cursor ->
-                val idIndex = cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DOCUMENT_ID)
-                val nameIndex = cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DISPLAY_NAME)
-                val mimeIndex = cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_MIME_TYPE)
-                
-                while (cursor.moveToNext()) {
-                    val mime = cursor.getString(mimeIndex)
-                    if (mime != null && mime.startsWith("image/")) {
-                        val docId = cursor.getString(idIndex)
-                        val name = cursor.getString(nameIndex) ?: "unknown_${System.currentTimeMillis()}"
-                        val uri = DocumentsContract.buildDocumentUriUsingTree(folderUri, docId)
-                        imageInfoList.add(name to uri)
-                    }
-                }
-            }
+            
+            collectImagesRecursive(context, folderUri, treeId, "", imageInfoList)
 
-            // 【重要】ファイル名で昇順ソートして順番を保証する
+            // 【重要】ファイル名（パス）で昇順ソートして順番を保証する
             imageInfoList.sortBy { it.first }
 
             val totalEntries = imageInfoList.size + 1
@@ -392,9 +410,9 @@ private suspend fun createZipWithSettingsLarge(
             onProgress(processed.toFloat() / totalEntries, processed, totalEntries)
 
             // 3. ソートされた順序で画像を追加
-            imageInfoList.forEach { (name, uri) ->
+            imageInfoList.forEach { (relativePath, uri) ->
                 context.contentResolver.openInputStream(uri)?.use { inputStream ->
-                    val imageEntry = ZipEntry(name) // 元のファイル名を使用
+                    val imageEntry = ZipEntry(relativePath) // 相対パスをZIP内の名前として使用
                     zos.putNextEntry(imageEntry)
                     inputStream.copyTo(zos)
                     zos.closeEntry()
